@@ -6,8 +6,10 @@ package mr
 // remember to capitalize all names.
 //
 
-import "os"
-import "strconv"
+import (
+	"os"
+	"strconv"
+)
 
 //
 // example to show how to declare the arguments
@@ -24,6 +26,43 @@ type ExampleReply struct {
 
 // Add your RPC definitions here.
 
+type WorkType int64
+
+const (
+	Map WorkType = iota
+	Reduce
+	wait
+	Finished
+)
+
+// GetWorkReq: get work request object
+// Uniquely identify this worker by its process id
+type GetWorkReq struct {
+	Pid int
+}
+
+type GetWorkRep struct {
+	Item     string
+	Id       int
+	WorkType WorkType
+	NReduce  int
+}
+
+type WorkDone struct {
+	Id       int
+	WorkType WorkType
+}
+
+// notify coordinator that this worker is alive
+type Health struct {
+	Id int
+}
+
+type Done struct {
+}
+
+type None struct {
+}
 
 // Cook up a unique-ish UNIX-domain socket name
 // in /var/tmp, for the coordinator.
