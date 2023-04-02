@@ -42,7 +42,11 @@ func ihash(key string) int {
 
 func do_map(mapf func(string, string) []KeyValue, work_items string, id int, nreduce int) []KeyValue {
 	log.Printf("MAP: work item [%v] id [%v] pid [%v]", work_items, id, os.Getpid())
-	go CallHealth(id)
+	quit := make(chan bool)
+	go CallHealth(id, quit)
+	defer func() {
+		quit <- true
+	}()
 	file, err := os.Open(work_items)
 	var kva []KeyValue
 	if err != nil {
@@ -96,7 +100,11 @@ func do_map(mapf func(string, string) []KeyValue, work_items string, id int, nre
 
 func do_reduce(reducef func(string, []string) string, work_items string, id int) {
 	log.Printf("REDUCE: work item [%v] id [%v] pid [%v]", work_items, id, os.Getpid())
-	go CallHealth(id)
+	quit := make(chan bool)
+	go CallHealth(id, quit)
+	defer func() {
+		quit <- true
+	}()
 	// shuffle stage
 	// ----------------
 	// find files ending with work_items, eg work_items="1"
@@ -128,7 +136,6 @@ func do_reduce(reducef func(string, []string) string, work_items string, id int)
 
 	sort.Sort(ByKey(kva))
 
-	// oname := "mr-out-0"
 	oname := fmt.Sprintf("mr-out-%v", work_items)
 	ofile, _ := os.Create(oname)
 	// reduce on each distinct key
@@ -161,10 +168,17 @@ func do_reduce(reducef func(string, []string) string, work_items string, id int)
 }
 
 // every 4 seconds, send health check signal to coordinator
-func CallHealth(id int) {
-	args := Health{Id: id}
+func CallHealth(id int, quit chan bool) {
+	// TODO
+	args := Health{Id: id, Pid: os.Getpid()}
 	reply := None{}
 	for {
+		select {
+		case <-quit:
+			return
+		default:
+			//
+		}
 		call(HEALTH, &args, &reply)
 		time.Sleep(4 * time.Second)
 	}
@@ -179,11 +193,6 @@ OuterLoop:
 	for {
 		start := time.Now()
 		work_req := CallGetWork()
-		// if len(work_req.Item) == 0 {
-		// 	return
-		// }
-		// TODO what happens if work type is neither map nor reduce? (i.e when some jobs are waiting for map phase to finish)
-		// go CallHealth(work_req.Id)
 		work_type := work_req.WorkType
 		switch work_type {
 		case WorkType(Map):
@@ -212,7 +221,7 @@ func CallGetWork() GetWorkRep {
 	}
 	reply := GetWorkRep{}
 	ok := call(GET_WORK, &args, &reply)
-	log.Printf("Call Get Work Done, duration [%v], work type [%v], pid [%v]", (time.Since(start)), reply.WorkType, os.Getpid())
+	log.Printf("Call Get Work Done, duration [%v], work type [%v], pid [%v], id [%v]", (time.Since(start)), reply.WorkType, os.Getpid(), reply.Id)
 	if ok {
 		return reply
 	} else {
