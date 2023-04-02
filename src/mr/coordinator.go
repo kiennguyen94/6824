@@ -49,12 +49,7 @@ type Coordinator struct {
 	nreduce_jobs int
 	lock         sync.Mutex
 	// set of input files, as we distribute works to workers, remove from this set
-	file_set map[string]bool
-	// map input file to worker id
-	worker_m map[string]int
-	// map worker id to input file
-	worker_m_inv map[int]string
-	// TODO clean up above
+	file_set    map[string]bool
 	map_jobs    []Job
 	reduce_jobs []Job
 }
@@ -96,7 +91,6 @@ func (c *Coordinator) give_map(args *GetWorkReq, reply *GetWorkRep) error {
 
 // return reduce task
 func (c *Coordinator) give_reduce(args *GetWorkReq, reply *GetWorkRep) error {
-	// TODO
 	log.Printf("Give Reduce start")
 	var work string
 	var reduce_id int
@@ -106,7 +100,7 @@ func (c *Coordinator) give_reduce(args *GetWorkReq, reply *GetWorkRep) error {
 		defer c.lock.Unlock()
 		for id, k := range c.reduce_jobs {
 			// job not sent or sent and last updated > 4 secs ago
-			if k.State == StNotSent || (k.State == StSent && k.LastCheck.Before(time.Now().Add(-4*time.Second))) {
+			if k.State == StNotSent || (k.State == StSent && k.LastCheck.Before(time.Now().Add(-5*time.Second))) {
 				has_job = true
 				work = k.Work
 				reduce_id = id
@@ -127,9 +121,9 @@ func (c *Coordinator) give_reduce(args *GetWorkReq, reply *GetWorkRep) error {
 	return nil
 }
 
+// for worker to announce that they're still alive
 func (c *Coordinator) HealthCheck(args *Health, reply *None) error {
-	// TODO check job type
-	log.Printf("Health check id [%v]", args.Id)
+	log.Printf("Health check id [%v] pid [%v]", args.Id, args.Pid)
 	c.lock.Lock()
 	defer c.lock.Unlock()
 	if !c.map_is_done {
@@ -141,22 +135,6 @@ func (c *Coordinator) HealthCheck(args *Health, reply *None) error {
 	}
 	return nil
 }
-
-// func (c *Coordinator) check_health() {
-// 	var job_arr *[]Job
-// 	if !c.map_is_done {
-// 		job_arr = &c.map_jobs
-// 	} else if !c.reduce_is_done {
-// 		job_arr = &c.reduce_jobs
-// 	}
-// 	for idx, mj := range *job_arr {
-// 		// if last check timestamp is more than 4 secs ago, consider dead
-// 		if mj.State != StFinished && mj.LastCheck.Before(time.Now().Add(-4*time.Second)) {
-// 			(*job_arr)[idx].State = StNotSent
-// 		}
-// 	}
-// 	time.Sleep(5 * time.Second)
-// }
 
 // GetWork: get work item, including work type, keys, nreduce, and unique id
 func (c *Coordinator) GetWork(args *GetWorkReq, reply *GetWorkRep) error {
@@ -173,8 +151,6 @@ func (c *Coordinator) GetWork(args *GetWorkReq, reply *GetWorkRep) error {
 
 // for workers to announce that they've completed work.
 func (c *Coordinator) WorkerDone(args *WorkDone, reply *None) error {
-	// may not be necessary to lock; but to be sure:
-	// TODO set map/reduce_is_done
 	all_done := true
 	var job_arr *[]Job
 	var work_is_done *bool
@@ -188,7 +164,6 @@ func (c *Coordinator) WorkerDone(args *WorkDone, reply *None) error {
 	if (*job_arr)[args.Id].State == StSent {
 		(*job_arr)[args.Id].State = StFinished
 	}
-	// log.Printf("WORKERDONE id [%v]", args.Id)
 	var logger string
 	for id, j := range *job_arr {
 		logger += fmt.Sprintf("%v - %v\n", id, j.State)
@@ -197,7 +172,6 @@ func (c *Coordinator) WorkerDone(args *WorkDone, reply *None) error {
 			break
 		}
 	}
-	// log.Printf("WORKERDONE work type [%v] id [%v] state [%v]", args.WorkType, args.Id, logger)
 	func() {
 		c.lock.Lock()
 		defer c.lock.Unlock()
@@ -217,8 +191,6 @@ func (c *Coordinator) server() {
 		log.Fatal("listen error:", e)
 	}
 	go http.Serve(l, nil)
-	// TODO reenable
-	// go c.check_health()
 }
 
 // main/mrcoordinator.go calls Done() periodically to find out
@@ -261,15 +233,9 @@ func MakeCoordinator(files []string, nReduce int) *Coordinator {
 		nreduce:        nReduce,
 		nreduce_jobs:   0,
 		file_set:       files_m,
-		worker_m:       make(map[string]int),
-		worker_m_inv:   make(map[int]string),
-
-		// TODO clean up above
-		map_jobs:    map_jobs,
-		reduce_jobs: reduce_jobs,
+		map_jobs:       map_jobs,
+		reduce_jobs:    reduce_jobs,
 	}
-
-	// Your code here.
 
 	c.server()
 	return &c
